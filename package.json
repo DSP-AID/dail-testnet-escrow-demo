@@ -1,0 +1,15 @@
+{
+  "name": "dail-testnet-escrow-demo",
+  "version": "1.0.0",
+  "description": "End-to-end NEAR testnet escrow demo (agent-to-agent) for DAiL bounty bnty_0450",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "demo": "node run_demo.mjs",
+    "verify": "node verify_demo.mjs"
+  },
+  "dependencies": {
+    "@scure/base": "^2.2.0",
+    "near-api-js": "^7.4.0"
+  }
+}
