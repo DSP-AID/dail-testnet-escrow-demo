@@ -25,7 +25,7 @@ Accounts:
 |------|---------|-------------------|
 | buyer agent | `dspaid-bounty452.testnet` (dspaid registered identity account) | [explorer](https://testnet.nearblocks.io/accounts/dspaid-bounty452.testnet) · [wallet](https://wallet.testnet.near.org/account/dspaid-bounty452.testnet) |
 | seller agent | `d450sellermw2xjmnnou3.dspaid-bounty452.testnet` (fresh keypair, created on-chain) | [explorer](https://testnet.nearblocks.io/accounts/d450sellermw2xjmnnou3.dspaid-bounty452.testnet) · [wallet](https://wallet.testnet.near.org/account/d450sellermw2xjmnnou3.dspaid-bounty452.testnet) |
-| escrow contract | `d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet` (contract-only account, no owner key spends the locked funds) | [explorer](https://testnet.nearblocks.io/accounts/d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet) · [wallet](https://wallet.testnet.near.org/account/d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet) |
+| escrow contract | `d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet` (contract account; **deployer FullAccess key retained** in this recorded run — see Disclosures) | [explorer](https://testnet.nearblocks.io/accounts/d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet) · [wallet](https://wallet.testnet.near.org/account/d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet) |
 
 Final on-chain escrow state (public RPC view call, no secrets):
 
@@ -97,8 +97,12 @@ Methods (all guarded by a strict stage machine; only the recorded buyer/seller a
 | `release {}` | recorded buyer, while stage 2 | stage 3 = released **and** contract sends the exact locked amount to the seller via a promise transfer |
 | `status {}` | view | JSON: stage, buyer, seller, locked amount (u128 little-endian hex) |
 
-The escrow account has no owner access key spending its funds — only the contract's own
-`release` path can move the locked deposit out.
+In the recorded run the locked deposit was moved out **only** through the contract's own
+`release` path, but the escrow account was **not** keyless: the deploy+init batch transaction
+also added a live deployer FullAccess key (`ed25519:9t3XAjLQZDBurp5cVYpJzFPT8mrfHPqxUP5cRfoDKpBG`)
+that could have moved the account balance directly. Custody during that run was therefore **not
+trustless** — see Disclosures for the full statement and the `run_demo.mjs` fix applied so future
+runs deploy a genuinely keyless escrow account.
 
 ## What `verify_demo.mjs` proves (17 checks, zero secrets)
 
@@ -114,6 +118,28 @@ The escrow account has no owner access key spending its funds — only the contr
 
 - **Testnet only.** The escrowed value is 0.1 **testnet** NEAR from a faucet — no mainnet,
   no real money, per the bounty requirement.
+- **Custody in the recorded run was NOT trustless (deployer key disclosure).** In the recorded
+  run (2026-11-05 ~02:32 UTC), `createSubAccount()` added an ephemeral deployer FullAccess key
+  `ed25519:9t3XAjLQZDBurp5cVYpJzFPT8mrfHPqxUP5cRfoDKpBG` to the escrow account
+  `d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet` inside the deploy+init batch transaction
+  [`HpPvgKyZcjKJfYdmuDakez3oqWriyyBFbaDMEYo1o2Jc`](https://testnet.nearblocks.io/txns/HpPvgKyZcjKJfYdmuDakez3oqWriyyBFbaDMEYo1o2Jc).
+  Because that keypair was generated in-memory via `KeyPair.fromRandom('ed25519')` and never
+  saved to disk, the key remained on the escrow account and cannot sign a retroactive `DeleteKey`
+  transaction on `d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet`. So: while the 0.1 NEAR deposit
+  was locked and released strictly through the contract's `release` method
+  ([`8C5ZGtTQkg9aZXJmLnW84b4RdGo8AsFRGzsWxrM59gcH`](https://testnet.nearblocks.io/txns/8C5ZGtTQkg9aZXJmLnW84b4RdGo8AsFRGzsWxrM59gcH)),
+  the retained deployer FullAccess key could have moved the account balance directly — custody
+  during the recorded demo was not trustless. Machine-checkable, no secrets (still live as of this
+  writing, exactly one key on the escrow account):
+
+  ```bash
+  curl -s https://rpc.testnet.near.org -H "Content-Type: application/json" --data-binary \
+  '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","account_id":"d450escrowmw2xjxpvyjb.dspaid-bounty452.testnet","finality":"final"}}'
+  ```
+- **Code fix for future runs:** `run_demo.mjs` now passes `addKey = false` when creating the escrow
+  sub-account, so `actions.addFullAccessKey(...)` is omitted and new runs deploy a contract-only
+  escrow account with **0 access keys** (keyless, contract-governed custody). The recorded run
+  above predates this fix.
 - The contract is a purpose-built minimal escrow (happy path: lock → deliver → release),
   not an audited marketplace contract; it has no refund/dispute branch by design.
 - Explorer links open in a browser (NearBlocks runs a Cloudflare challenge for raw HTTP

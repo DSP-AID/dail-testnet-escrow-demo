@@ -90,14 +90,16 @@ async function sendTx({ signer, publicKey, senderId, receiverId, acts, label }) 
 
 // On-chain sub-account creation: [createAccount, transfer, ...extra, addFullAccessKey]
 // in one batch. Funds the new account with `transferNear` (covers storage staking + gas).
-async function createSubAccount(parent, role, transferNear, extraActs, label) {
+// addKey=false omits addFullAccessKey — used for the escrow contract so it is deployed as a
+// genuinely keyless, contract-only account (0 access keys cannot move its balance directly).
+async function createSubAccount(parent, role, transferNear, extraActs, label, addKey = true) {
   const keypair = await KeyPair.fromRandom('ed25519');
   const accountId = `d450${role}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}.${parent.accountId}`;
   const acts = [
     actions.createAccount(),
     actions.transfer(BigInt(nearToYocto(transferNear))),
     ...extraActs,
-    actions.addFullAccessKey(keypair.getPublicKey()),
+    ...(addKey ? [actions.addFullAccessKey(keypair.getPublicKey())] : []),
   ];
   const step = await sendTx({ signer: parent.signer, publicKey: parent.publicKey, senderId: parent.accountId, receiverId: accountId, acts, label });
   await balanceYocto(accountId); // wait until the account is queryable
@@ -183,10 +185,12 @@ async function main() {
 
   // --- escrow contract account: sub-account + funding + deploy + init in ONE tx ---
   console.log('[3/6] deploying escrow contract (create sub-account + deploy + init in one tx)...');
+  // addKey=false: no FullAccess key on the escrow account — only the contract governs its balance
   const escrow = await createSubAccount(
     buyer, 'escrow', '0.5',
     [actions.deployContract(wasm), actions.functionCall('new', { seller_id: seller.accountId }, GAS, 0n)],
     'deploy+init',
+    false,
   );
   steps.push(escrow.step);
   console.log(`      escrow: ${escrow.accountId}  ${WALLET_ACC}${escrow.accountId}`);
